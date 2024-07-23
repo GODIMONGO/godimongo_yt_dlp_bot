@@ -1,8 +1,9 @@
 import time
-import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-
+import os
+import uuid
+import requests
 import yt_dlp
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.fsm.context import FSMContext
@@ -49,10 +50,11 @@ class Work(StatesGroup):
     download = State()
     change_format = State()
     change_solution = State()
-
+import os
+import uuid
+from yt_dlp import YoutubeDL
 
 def download_video_register(url, quality='best', preferred_format='mp4'):
-    import uuid
     id_video = uuid.uuid4()
     path = f'C:/Users/Gdjsb/PycharmProjects/pythonProject/{id_video}.{preferred_format}'
     ydl_opts = {
@@ -64,14 +66,29 @@ def download_video_register(url, quality='best', preferred_format='mp4'):
         'outtmpl': f'C:/Users/Gdjsb/PycharmProjects/pythonProject/{id_video}.%(ext)s',
     }
 
+    # Get estimated file size from video hosting service API
+    ydl = YoutubeDL(ydl_opts)
+    try:
+        info_dict = ydl.extract_info(url, download=False)
+    except Exception as e:
+        print(f'Error getting video info: {e}')
+        return None
+    print(int(info_dict['filesize_approx']))
+    # Check estimated file size
+    # Check estimated file size
+    if int(info_dict['filesize_approx']) > 1024 * 1024 * 2048:  # 100 MB limit
+        print('Estimated file size is too large. Skipping download.')
+        return 'too_large', ''
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
             file_size = os.path.getsize(path) / (1024 * 1024)
             return path, file_size
     except Exception as e:
-        print(f'Ошибка скачивания видео: {e}')
+        print(f'Error downloading video: {e}')
         return None
+
+
 
 async def list_formats(ytlink):
     ydl_opts = {}
@@ -93,8 +110,9 @@ async def list_formats(ytlink):
         format_id = f.get('format_id')
         container = f.get('ext', 'Неизвестно')
         filesize_mb = filesize / (1024 * 1024) if filesize != 'Unknown' else 'Unknown'
-        formats_youtube[format_id] = {'Resolution': height, 'Filesize': f'{filesize_mb:.2f}', 'Format': container}
-        builder.button(text=format_id, callback_data=str(format_id))
+        if filesize_mb < 2048:
+            formats_youtube[format_id] = {'Resolution': height, 'Filesize': f'{filesize_mb:.2f}', 'Format': container}
+            builder.button(text=format_id, callback_data=str(format_id))
 
     return formats_youtube, builder
 
@@ -129,6 +147,8 @@ async def start_message(message: types.Message, state: FSMContext):
             loop = asyncio.get_event_loop()
             filename, filesize = await loop.run_in_executor(executor, download_video_register, ytlink,
                                                             user_data.solution, user_data.download_format)
+            if filename == 'too_large':
+                await message.answer('К сожалению мы не можем скачать данное видео. Оно слишком большое.')
             await message.answer('Видео успешно скачено!')
             if float(filesize) > 20:
                 err = 0
